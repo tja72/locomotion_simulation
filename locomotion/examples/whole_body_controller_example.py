@@ -77,13 +77,16 @@ _INIT_LEG_STATE = (
 
 def _generate_example_linear_angular_speed(t):
   """Creates an example speed profile based on time for demo purpose."""
-  vx = 0.6
+  vx = .6 #max is 1
   vy = 0.2
   wz = 0.8
+  vz= .1
 
-  time_points = (0, 5, 10, 15, 20, 25, 30)
-  speed_points = ((0, 0, 0, 0), (0, 0, 0, wz), (vx, 0, 0, 0), (0, 0, 0, -wz),
-                  (0, -vy, 0, 0), (0, 0, 0, 0), (0, 0, 0, wz))
+  time_points = (0, 2, 4, 6, 8, 10, 30, 40, 50, 70, 80, 100, 200, 300, 400, 500, 600)
+  speed_points = ((0, 0, 0, 0), (vx, 0, vz, 0), (vx, 0, vz, 0), (vx, 0, vz, 0),
+                  (vx, 0, vz, 0), (vx, 0, vz, 0), (vx, 0, vz, 0), (vx, 0, vz, 0),
+                  (vx, 0, vz, 0), (vx, 0, vz, 0), (vx, 0, vz, 0), (vx, 0, vz, 0),
+                  (vx, 0, vz, 0), (vx, 0, vz, 0), (vx, 0, vz, 0), (vx, 0, vz, 0), (vx, 0, vz, 0)) #x,y,z, omega (rotation)
 
   speed = scipy.interpolate.interp1d(time_points,
                                      speed_points,
@@ -156,7 +159,7 @@ def main(argv):
   p.setGravity(0, 0, -9.8)
   p.setPhysicsEngineParameter(enableConeFriction=0)
   p.setAdditionalSearchPath(pybullet_data.getDataPath())
-  p.loadURDF("plane.urdf")
+  p.loadURDF("plane_big.urdf")
 
   # Construct robot class:
   if FLAGS.use_real_robot:
@@ -171,7 +174,7 @@ def main(argv):
                   motor_control_mode=robot_config.MotorControlMode.HYBRID,
                   enable_action_interpolation=False,
                   reset_time=2,
-                  time_step=0.002,
+                  time_step=0.002, # TODO: Need Freq ------------------------------------------------ 0.002 ------------
                   action_repeat=1)
 
   controller = _setup_controller(robot)
@@ -190,7 +193,18 @@ def main(argv):
 
   start_time = robot.GetTimeSinceReset()
   current_time = start_time
-  states, actions = [], []
+  actions_pos = []
+  actions_torque = []
+
+
+  # for normalization of the actions
+  states = [[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[]]
+  high = np.array([0.802851455917, 4.18879020479, -0.916297857297, 0.802851455917, 4.18879020479, -0.916297857297, 0.802851455917
+      , 4.18879020479, -0.916297857297, 0.802851455917, 4.18879020479, -0.916297857297])
+  low = np.array([-0.802851455917, -1.0471975512, -2.69653369433, -0.802851455917, -1.0471975512, -2.69653369433, -0.802851455917
+      , -1.0471975512, -2.69653369433, -0.802851455917, -1.0471975512, -2.69653369433, ])
+  norm_act_mean = (high + low) / 2.0
+  norm_act_delta = (high - low) / 2.0
   while current_time - start_time < FLAGS.max_time_secs:
     start_time_robot = current_time
     start_time_wall = time.time()
@@ -202,19 +216,27 @@ def main(argv):
       break
     _update_controller_params(controller, lin_speed, ang_speed)
     controller.update()
-    hybrid_action, info = controller.get_action()
-    states.append(
-        dict(timestamp=robot.GetTimeSinceReset(),
-             base_rpy=robot.GetBaseRollPitchYaw(),
-             motor_angles=robot.GetMotorAngles(),
-             base_vel=robot.GetBaseVelocity(),
-             base_vels_body_frame=controller.state_estimator.
-             com_velocity_body_frame,
-             base_rpy_rate=robot.GetBaseRollPitchYawRate(),
-             motor_vels=robot.GetMotorVelocities(),
-             contacts=robot.GetFootContacts(),
-             qp_sol=info['qp_sol']))
-    actions.append(hybrid_action)
+    hybrid_action, info = controller.get_action() # time consuming
+    noise = np.random.rand(60)*1e-4
+    hybrid_action+=noise
+
+    # collect states data
+    temp = list(robot.GetBasePosition())
+    temp[2] -= 0.43
+    temp = temp + list(robot.GetTrueBaseRollPitchYaw())
+    temp = temp + list(robot.GetTrueMotorAngles())
+    temp = temp + list(robot.GetBaseVelocity())
+    temp = temp + list(robot.GetTrueBaseRollPitchYawRate())
+    temp = temp + list(robot.GetTrueMotorVelocities())
+    for i in np.arange(len(states)):
+        states[i].append(temp[i])
+    #collect actions - position
+    actions_pos.append((robot.GetTrueMotorAngles()-norm_act_mean)/norm_act_delta)  # TODO: ------------------------- other format, and position
+    # collect actions - torques
+    actions_torque.append((robot.GetTrueMotorTorques()-norm_act_mean)/norm_act_delta)
+
+    #print('State: ', temp)
+
     robot.Step(hybrid_action)
     current_time = robot.GetTimeSinceReset()
     if not FLAGS.use_real_robot:
@@ -227,10 +249,28 @@ def main(argv):
     gamepad.stop()
 
   if FLAGS.logdir:
-    np.savez(os.path.join(logdir, 'action.npz'), action=actions)
-    pickle.dump(states, open(os.path.join(logdir, 'states.pkl'), 'wb'))
+    np.savez(os.path.join(logdir, 'actions_position.npz'), action=actions_pos)
+    np.savez(os.path.join(logdir, 'actions_torque.npz'), action=actions_torque)
+    np.savez(os.path.join(logdir, 'states.npz'), #rpy
+             q_trunk_tx=np.array(states[0]), q_trunk_ty=np.array(states[1]), q_trunk_tz=np.array(states[2]),
+             q_trunk_tilt=np.array(states[5]), q_trunk_list=np.array(states[3]), q_trunk_rotation=np.array(states[4]),
+             q_FR_hip_joint=np.array(states[6]), q_FR_thigh_joint=np.array(states[7]), q_FR_calf_joint=np.array(states[8]),
+             q_FL_hip_joint=np.array(states[9]), q_FL_thigh_joint=np.array(states[10]), q_FL_calf_joint=np.array(states[11]),
+             q_RR_hip_joint=np.array(states[12]), q_RR_thigh_joint=np.array(states[13]), q_RR_calf_joint=np.array(states[14]),
+             q_RL_hip_joint=np.array(states[15]), q_RL_thigh_joint=np.array(states[16]), q_RL_calf_joint=np.array(states[17]),
+             dq_trunk_tx=np.array(states[18]), dq_trunk_tz=np.array(states[19]), dq_trunk_ty=np.array(states[20]),
+             dq_trunk_tilt=np.array(states[21]), dq_trunk_list=np.array(states[22]), dq_trunk_rotation=np.array(states[23]),
+             dq_FR_hip_joint=np.array(states[24]), dq_FR_thigh_joint=np.array(states[25]), dq_FR_calf_joint=np.array(states[26]),
+             dq_FL_hip_joint=np.array(states[27]), dq_FL_thigh_joint=np.array(states[28]), dq_FL_calf_joint=np.array(states[29]),
+             dq_RR_hip_joint=np.array(states[30]), dq_RR_thigh_joint=np.array(states[31]), dq_RR_calf_joint=np.array(states[32]),
+             dq_RL_hip_joint=np.array(states[33]), dq_RL_thigh_joint=np.array(states[34]), dq_RL_calf_joint=np.array(states[35]))
+    #pickle.dump(states, open(os.path.join(logdir, 'states.pkl'), 'wb'))
     logging.info("logged to: {}".format(logdir))
 
 
 if __name__ == "__main__":
   app.run(main)
+
+
+
+# python3 -m locomotion.examples.whole_body_controller_example --use_gamepad=False --show_gui=True --use_real_robot=False --max_time_secs=10
