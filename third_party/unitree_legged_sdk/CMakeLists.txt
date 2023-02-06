@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(unitree_legged_sdk)
 
+include_directories(${Boost_INCLUDE_DIRS})
 include_directories(include)
 
 link_directories(lib)
