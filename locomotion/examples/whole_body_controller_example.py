@@ -188,10 +188,9 @@ def main(argv):
         try:
             nr_of_seeds = 1
             #desired_state_lst_lst = [[[0,100000,0]], [[0,-100000,0]], [[100000,100000,0]], [[100000,-100000,0]], [[-100000, 100000,0]], [[-100000,-100000,0]], [[100000,0,0]],[[-100000,0,0]]]# List of list of states
-            desired_state_lst_lst = [[[0,0,np.pi], [1,1,np.pi], [1,0,np.pi/2], [0,0,np.pi]]] #[[[-50, 0, 0]]] #[[[50, 0, 0]], [[-50, 0, 0]], [[0, -50, 0]], [[0, 50, 0]], [[50, 50, 0]], [[50, -50, 0]], [[-50, 50, 0]], [[-50, -50, 0]]]
+            desired_state_lst_lst = [[[0,50,0]]]#[[[0,0,np.pi], [1,1,np.pi], [1,0,np.pi/2], [0,0,np.pi]]] #[[[-50, 0, 0]]] #[[[50, 0, 0]], [[-50, 0, 0]], [[0, -50, 0]], [[0, 50, 0]], [[50, 50, 0]], [[50, -50, 0]], [[-50, 50, 0]], [[-50, -50, 0]]]
 
             #appendix = ["_50k_left", "_50k_right", "_50k_FL", "_50k_FR", "_50k_BL", "_50k_BR", "_50k_forward", "_50k_backward"]
-
 
 
             # wz = -0.016  # -0.016 for left side; 0.028 for right side; 0.086 for Back right; 0.0419 for Front right; -0.0319 for Front Left; -0.043 for Back Left
@@ -232,8 +231,8 @@ def main(argv):
                          q_RR_calf_joint=np.array(states[14]),
                          q_RL_hip_joint=np.array(states[15]), q_RL_thigh_joint=np.array(states[16]),
                          q_RL_calf_joint=np.array(states[17]),
-                         dq_trunk_tx=np.array(states[18]), dq_trunk_tz=np.array(states[19]),
-                         dq_trunk_ty=np.array(states[20]),
+                         dq_trunk_tx=np.array(states[18]), dq_trunk_ty=np.array(states[19]),
+                         dq_trunk_tz=np.array(states[20]),
                          dq_trunk_tilt=np.array(states[23]), dq_trunk_list=np.array(states[21]),
                          dq_trunk_rotation=np.array(states[22]),
                          dq_FR_hip_joint=np.array(states[24]), dq_FR_thigh_joint=np.array(states[25]),
@@ -261,116 +260,58 @@ def main(argv):
             discord.post(content=message)
 
 
+def follow_trajectory(pos_desired_last, pos, vel_desired, vel, dt, pos_errors, final_pos, angle): # todo weniger parameter
 
-def scale_rotate_xy_speed(dt, e1, e2, e3, angle):
-    de1 = e1[-1] - e1[-2]
-    de2 = e2[-1] - e2[-2]
-    de3 = e3[-1] - e3[-2]
-
-    max_x = 0.6
-    max_y = 0.4
-
-    # k controllers to reach desired_state
-    kp1 = 12# if e1[-1]*12 > max_x else 20000 # 15
-    kp2 = 1200000 #if e2[-1]*12 > max_y else 20000
-    kp3 = 12
-
-    ki1 = 1
-    ki2 = 1
-    ki3 = 10
-
-    kd1 = 100000
-    kd2 = 100000
-    kd3 = 10
-
-    #time 100.002
-
-    temp_x = kp1 * e1[-1] + ki1 * np.trapz(e1, dx=dt) #+ kd1 * (de1 / dt)
-    temp_y = kp2 * e2[-1] + ki2 * np.trapz(e2, dx=dt) #+ kd2 * (de2 / dt)
-
-    #temp_x = kp1 *
-
-    # needed because lin_spped is from the view of the robot -> needs to turn absolute velos in persepective ones
-    rotated_x = np.cos(-angle) * np.array(temp_x) - np.sin(-angle) * np.array(temp_y)
-    rotated_y = np.sin(-angle) * np.array(temp_x) + np.cos(-angle) * np.array(temp_y)
-    # to keep the rato from x to y -> don't use full speed all time (if 1,1 should be reached speed 0.4, 0.4 instead of 0.6, 0.4)
-
-    factor1 = 1 if np.abs(rotated_x) < max_x else np.abs(max_x / (rotated_x))
-    factor2 = 1 if np.abs(rotated_y * factor1) < max_y else np.abs(max_y / (rotated_y * factor1))
-    vx = rotated_x * factor1 * factor2
-    vy = rotated_y * factor1 * factor2
-
-    L = np.linalg.norm([rotated_x, rotated_y])
-    alpha = np.arccos(rotated_x / L)
-    L_max = np.sqrt(np.square(np.cos(alpha)*max_x) + np.square(np.sin(alpha)*max_y))
-    #vx = np.cos(alpha) * L_max
-    #vy = np.sin(alpha) * L_max
-
-
-    ang_diff = ((e3[-1]+np.pi) % (2*np.pi) -np.pi)
-    ang_speed = kp3 * ang_diff #+ ki3 * np.trapz(e3, dx=dt) + kd3 * (de3 / dt)
-
-    ang_speed = np.clip(ang_speed, -0.8, 0.8)
-    return vx, vy, ang_speed
-
-def follow_trajectory(pos_desired_last, pos, vel_desired, vel, dt, pos_errors, final_pos, angle, pos_error_last): # todo weniger parameter
-
-    kp = [120,100,170] # todo to array - finetune
-    kd = [30, 25, 25]
-    ki = [0.2, .3, .2]
-
-
-
-
-
-
+    #controller params
+    kp = [160,190,300]
+    kd = [12, 37, 25]
+    ki = [.3, .3, .2]
 
     #next desired position
-    pos_desired_temp = pos_desired_last + dt * vel_desired
+    pos_desired = pos_desired_last + dt * vel_desired
     #if final desired point is nearly reached -> point is final point
-
     pos_desired = [
-        pos_desired_temp[0] if not np.isclose(pos_desired_last[0], final_pos[0], 2*dt, dt) else final_pos[0],
-        pos_desired_temp[1] if not np.isclose(pos_desired_last[1], final_pos[1], 2*dt, dt) else final_pos[1],
-        pos_desired_temp[2] if not np.isclose(pos_desired_last[2], final_pos[2], 2*dt, dt) else final_pos[2]
+        pos_desired[0] if not np.isclose(pos_desired_last[0], final_pos[0], 2*dt, dt) else final_pos[0],
+        pos_desired[1] if not np.isclose(pos_desired_last[1], final_pos[1], 2*dt, dt) else final_pos[1],
+        pos_desired[2] if not np.isclose(pos_desired_last[2], final_pos[2], 2*dt, dt) else final_pos[2]
 
     ]
 
+    #TODO obsolete if I continue using de/dt
     vel_desired = [
         vel_desired[0] if not np.isclose(pos_desired_last[0], final_pos[0], 2 * dt, dt) else 0,
         vel_desired[1] if not np.isclose(pos_desired_last[1], final_pos[1], 2 * dt, dt) else 0,
         vel_desired[2] if not np.isclose(pos_desired_last[2], final_pos[2], 2 * dt, dt) else 0
     ]
 
-
-
+    rotated_pos_x = np.cos(-angle) * np.array(pos[0]) - np.sin(-angle) * np.array(pos[1])
+    rotated_pos_y = np.sin(-angle) * np.array(pos[0]) + np.cos(-angle) * np.array(pos[1])
 
     # append next pos_error
-    pos_error = pos_desired - pos
+    pos_error = pos_desired - pos #[rotated_pos_x, rotated_pos_y]
+    # handle rotation error in corresponding shorter direction
     pos_error[2] = ((pos_error[2] + np.pi) % (2 * np.pi) - np.pi)
 
+    # append the new error to the list for ki
+    pos_errors.append(pos_error)
 
-    for i in range(len(pos_errors)):
-        pos_errors[i] = np.append(pos_errors[i], pos_error[i])
 
-    de = pos_error - pos_error_last
+    # param for kd
+    de = pos_errors[-1] - pos_errors[-2]
 
-    #u = kp * (pos_error) + kd * (vel_desired - vel) + ki * np.trapz(pos_errors, dx=dt)
-    u = kp * (pos_error) + kd * (de/dt) + ki * np.trapz(pos_errors, dx=dt)
+    #u = kp * (pos_error) + kd * (vel_desired - vel) + ki * np.trapz(pos_errors, dx=dt) todo obsolete if I continue with de/dt
+    u = kp * (pos_error) + kd * (de/dt) + ki * np.trapz(pos_errors, dx=dt, axis=0)
 
+    # rotate resulting corrections corresponding to robots orientation
     rotated_x = np.cos(-angle) * np.array(u[0]) - np.sin(-angle) * np.array(u[1])
     rotated_y = np.sin(-angle) * np.array(u[0]) + np.cos(-angle) * np.array(u[1])
 
-
-    alpha = np.arctan2(rotated_y, rotated_x)  # np.arccos(rotated_x / L) if L != 0 else 0
+    # calc the maimum velocities in x,y dir
+    alpha = np.arctan2(rotated_y, rotated_x)
     L_max = np.sqrt(np.square(np.cos(alpha) * max_x) + np.square(np.sin(alpha) * max_y))
     max_vel = np.array([np.cos(alpha) * L_max, np.sin(alpha) * L_max])
 
-    # TODO values in u can be higher than max -> loose prop -> walks more in x than in y
-    a = np.clip(rotated_x, -max_x, max_x)
-    b = np.clip(rotated_y, -max_y, max_y)
-    c = np.clip(rotated_x, -max_vel[0], max_vel[0])
-    d = np.clip(rotated_y, -max_vel[1], max_vel[1])
+    # clip the resulted velocities
     u[0] = np.clip(rotated_x, -max_vel[0], max_vel[0])
     u[1] = np.clip(rotated_y, -max_vel[1], max_vel[1])
     u[2] = np.clip(u[2], -max_z, max_z)
@@ -449,9 +390,8 @@ def execute_controller(desired_state_lst, seed=0, appendix=''):
     velocities = [[],[], []] # for plotting/fietuning
     lin_speed=[[],[],[]]
     # next sub position/ intermediate step
-    sub_pos_desired = np.append(robot.GetBasePosition()[:2], robot.GetTrueBaseRollPitchYaw()[2]) # todo---------------------
-    pos_errors = [[0], [0], [0]]
-    pos_error_last = 0
+    sub_pos_desired = np.append(robot.GetBasePosition()[:2], robot.GetTrueBaseRollPitchYaw()[2])
+    pos_errors = [[0,0,0]]
     while current_time - start_time < FLAGS.max_time_secs:
 
         start_time_robot = current_time
@@ -464,31 +404,23 @@ def execute_controller(desired_state_lst, seed=0, appendix=''):
 
         angle = robot.GetTrueBaseRollPitchYaw()[2]
         x, y = robot.GetBasePosition()[:2]
-        act_pos = np.array([x, y, angle])
+        act_pos = np.array([x, y, ((angle + np.pi) % (2 * np.pi) - np.pi)])
         vx, vy = robot.GetBaseVelocity()[:2]
         v_angle = robot.GetTrueBaseRollPitchYawRate()[2]
         act_vel = np.array([vx, vy, v_angle])
 
 
-        # if desired_state reached todo ----------
+        # if desired_state reached
+        """
         e = 0.01
-
-        if np.abs(act_pos[0]-desired_state[0])<e and np.abs(act_pos[1]-desired_state[1])<e and desired_state == [1,0,np.pi/2]:
-            print('x:', np.abs(act_pos[0] - desired_state[0]))
-            print('y:', np.abs(act_pos[1] - desired_state[1]))
-            print('r:', np.abs(act_pos[2] - desired_state[2]))
-            print("----")
-        if (np.abs(act_pos[0]-desired_state[0]) < e) and (np.abs(act_pos[1]-desired_state[1])) < e and (np.abs(act_pos[2]-desired_state[2]) < e):
+        if (np.abs(act_pos[0]-desired_state[0]) < e) and (np.abs(act_pos[1]-desired_state[1])) < e and (np.abs(act_pos[2]-((desired_state[2] + np.pi) % (2 * np.pi) - np.pi)) < e):
             desired_state_counter += 1
             if (desired_state_counter<len(desired_state_lst)):
                 last_desired_state = desired_state
                 desired_state = desired_state_lst[desired_state_counter]
                 print(desired_state)
-                #e1 = [0]
-                #e2 = [0]
-                #e3 = [0]
             else:
-                break
+                break"""
 
 
 
@@ -501,33 +433,33 @@ def execute_controller(desired_state_lst, seed=0, appendix=''):
         act_point[1].append(act_pos[1])
         act_point[2].append(act_pos[2])
 
-        # todo obsolete
-        #e1.append(desired_state[0] - act_pos[0])
-        #e2.append(desired_state[1] - act_pos[1])
-        #e3.append(desired_state[2] - act_pos[2])
 
         dt = robot.time_step
 
+        """
+        x_diff = desired_state[0] - last_desired_state[0]
+        y_diff = desired_state[1] - last_desired_state[1]
 
+        #rotated_x = np.cos(-angle) * np.array(x_diff) - np.sin(-angle) * np.array(y_diff)
+        #rotated_y = np.sin(-angle) * np.array(x_diff) + np.cos(-angle) * np.array(y_diff)
 
-
-
-        vel_desired = np.array([0.6, 0.0, 0.0]) # todo ellipse and maybe move into function
-
-        rotated_x = np.cos(-angle) * np.array(desired_state[0]) - np.sin(-angle) * np.array(desired_state[1])
-        rotated_y = np.sin(-angle) * np.array(desired_state[0]) + np.cos(-angle) * np.array(desired_state[1])
-        rotated_x = desired_state[0] - last_desired_state[0]
-        rotated_y = desired_state[1] - last_desired_state[1]
-        L = np.linalg.norm([rotated_x, rotated_y])
-        alpha = np.arctan2(rotated_y, rotated_x)#np.arccos(rotated_x / L) if L != 0 else 0
+        alpha = np.arctan2(y_diff, x_diff)
         L_max = np.sqrt(np.square(np.cos(alpha) * max_x) + np.square(np.sin(alpha) * max_y))
-        vel_desired = np.array([np.cos(alpha) * L_max, np.sin(alpha) * L_max, np.clip(desired_state[2] - last_desired_state[2], -max_z, max_z)])
+        vel_desired = np.array([np.cos(alpha) * L_max, np.sin(alpha) * L_max, np.clip(desired_state[2] - last_desired_state[2], -max_z, max_z)])"""
 
 
 
-        u, sub_pos_desired, pos_errors = follow_trajectory(sub_pos_desired, act_pos,vel_desired, act_vel, dt, pos_errors, desired_state, angle, pos_error_last)
-        #todo schöner machen
-        pos_error_last = sub_pos_desired - act_pos
+        #todo dont use to big steps else the error returns
+        # todo velocities
+        # todo direction arrow with
+        # todo change whole system to work with velos instead of points
+
+        # todo:::::
+        # TODO LOCOMOTION: model bekommt geschwindigkeitsvektoren nicht positionen; speed_vector; direction agnle bei rotation, schrittgröße
+        # TODO IRL: logging methode testen/einführen;
+
+
+        u, sub_pos_desired, pos_errors = follow_trajectory(sub_pos_desired, act_pos,vel_desired, act_vel, dt, pos_errors, desired_state, angle)
 
 
         lin_speed[:2] = u[:2]
@@ -573,25 +505,19 @@ def execute_controller(desired_state_lst, seed=0, appendix=''):
         # print(np.arccos(np.clip(np.dot(lin_speed[0], lin_speed[1]), -1.0, 1.0)))
 
 
-        #states for direction arrow todo adapt to new function
-        #start_speed_vec = scale_rotate_xy_speed(dt=dt, e1=[0, desired_state[0] - last_desired_state[0]],
-         #                                       e2=[0, desired_state[1] - last_desired_state[1]],
-          #                                      e3=[0, desired_state[2] - last_desired_state[2]],
-           #                                     angle=last_desired_state[2])
-
-        start_speed_vec = [0, 0,0]
         # turn angle into matrix
         angle_goal = np.arctan2(desired_state[1] - last_desired_state[1], desired_state[0] - last_desired_state[0])
 
-        angle_goal -= last_desired_state[2] # + start_speed_vec[2]
+        angle_goal -= last_desired_state[2]
         R = np.array([[np.cos(angle_goal), -np.sin(angle_goal), 0], [np.sin(angle_goal), np.cos(angle_goal), 0], [0, 0, 1]])
         arrow = np.array([0, 0, 1, 1, 0, 0, 0, 1, 0]).reshape((3, 3))
         rotation_matrix_dir = np.dot(R, arrow).reshape((9,))
         states[36].append(rotation_matrix_dir)
 
         # states for goal velocity; fixed per desired state
-        speed = np.round(np.linalg.norm(start_speed_vec[:2]), 5)
-        states[37].append(speed)
+        speed = np.round(np.linalg.norm(vel_desired[:2]), 5)
+        print(speed)
+        states[37].append(speed) # TODO correct? I rotate with the tilt of the body
 
 
         # print('State: ', temp)
