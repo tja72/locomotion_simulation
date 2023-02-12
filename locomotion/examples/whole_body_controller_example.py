@@ -179,16 +179,20 @@ def main(argv):
 
 
     if not FLAGS.logdir:
-        desired_state_lst = [[0, 0, np.pi], [1, 1, np.pi], [1, 0, np.pi/2], [0, 0, np.pi]]
-        desired_state_lst = [[50, 0, 0]]#, [1, 1, 0]]
+        desired_vel_lst = [[0, 0, np.pi], [1, 1, np.pi], [1, 0, np.pi/2], [0, 0, np.pi]]
+        desired_vel_lst = [[50, 0, 0]]#, [1, 1, 0]]
 
-        execute_controller(desired_state_lst=desired_state_lst)
+        execute_controller(desired_vel_lst=desired_vel_lst)
     else:
         discord = Discord(url="https://discordapp.com/api/webhooks/1065410497010213004/ufF-beaSOUyU-_LbbMkThY8P1j06HyWoSSHc8DCNVkNpMVhqGPcVomKStbYKwIrGEol6")
         try:
-            nr_of_seeds = 1
+            nr_of_seeds = 3
+
             #desired_state_lst_lst = [[[0,100000,0]], [[0,-100000,0]], [[100000,100000,0]], [[100000,-100000,0]], [[-100000, 100000,0]], [[-100000,-100000,0]], [[100000,0,0]],[[-100000,0,0]]]# List of list of states
-            desired_state_lst_lst = [[[0,50,0]]]#[[[0,0,np.pi], [1,1,np.pi], [1,0,np.pi/2], [0,0,np.pi]]] #[[[-50, 0, 0]]] #[[[50, 0, 0]], [[-50, 0, 0]], [[0, -50, 0]], [[0, 50, 0]], [[50, 50, 0]], [[50, -50, 0]], [[-50, 50, 0]], [[-50, -50, 0]]]
+            # list of a set of velocitie vectors
+            # a velocity vector consists of [vel_x, vel_y vel_tilt, time in sec until when it should be executed(if None infinity)]
+            # vel_x and y will be scaled down to the maximum velocity while containing the ratio
+            desired_vel_lst_lst = [[[0,1,0, None]]]#[[[0,0,np.pi], [1,1,np.pi], [1,0,np.pi/2], [0,0,np.pi]]] #[[[-50, 0, 0]]] #[[[50, 0, 0]], [[-50, 0, 0]], [[0, -50, 0]], [[0, 50, 0]], [[50, 50, 0]], [[50, -50, 0]], [[-50, 50, 0]], [[-50, -50, 0]]]
 
             #appendix = ["_50k_left", "_50k_right", "_50k_FL", "_50k_FR", "_50k_BL", "_50k_BR", "_50k_forward", "_50k_backward"]
 
@@ -200,12 +204,12 @@ def main(argv):
             states = [list() for i in range(38)]
             actions_pos=[]
             actions_torque=[]
-            for j in range(len(desired_state_lst_lst)):
-                print("Starting simulation of ", j+1, '/', len(desired_state_lst_lst))
+            for j in range(len(desired_vel_lst_lst)):
+                print("Starting simulation of ", j+1, '/', len(desired_vel_lst_lst))
                 for i in range(nr_of_seeds):
-                    print("    direction ", j+1, '/', len(desired_state_lst_lst))
-                    print("    with seed=" + str(i), "; desired_state_lst=", desired_state_lst_lst[j])
-                    states_temp, action_pos_temp, actions_torque_temp = execute_controller(desired_state_lst=desired_state_lst_lst[j], seed=i)
+                    print("    direction ", j+1, '/', len(desired_vel_lst_lst))
+                    print("    with seed=" + str(i), "; desired_vel_lst=", desired_vel_lst_lst[j])
+                    states_temp, action_pos_temp, actions_torque_temp = execute_controller(desired_vel_lst=desired_vel_lst_lst[j], seed=i)
                     assert len(states_temp) == len(states), "has to be the same length/obs spec"
                     split_points.append(len(states_temp[0])+split_points[-1])
                     states = [states[k] + states_temp[k] for k in range(len(states))]
@@ -252,7 +256,7 @@ def main(argv):
 
 
 
-            message = "successfully finished all " + str(len(desired_state_lst_lst)*nr_of_seeds) + " datasets!"
+            message = "successfully finished all " + str(len(desired_vel_lst_lst)*nr_of_seeds) + " datasets!"
             discord.post(content=message)
         except NotImplementedError as e:
             type, value, traceback = sys.exc_info()
@@ -260,66 +264,52 @@ def main(argv):
             discord.post(content=message)
 
 
-def follow_trajectory(pos_desired_last, pos, vel_desired, vel, dt, pos_errors, final_pos, angle): # todo weniger parameter
+def follow_trajectory(pos, vel_desired, vel, dt, pos_errors, angle, init_pos): # todo weniger parameter
 
     #controller params
-    kp = [160,190,300]
-    kd = [12, 37, 25]
-    ki = [.3, .3, .2]
+    kp = [100, 80, 100]
+    kd = [10, 50, 30]
+    ki = [40, 1.5, 1]
 
     #next desired position
+    angle_diff = np.arctan2(vel_desired[1], vel_desired[0]) - np.arctan2(pos[1], pos[0])
+    # projects the position to the desired speed_vector to prevent too large differents between the pos_desired and the pos (still in the same direction, still the same step size but we reset the last desired pos to the point the robot actually reached (on that desired_vel vector)
+    # is [0,0] if vel_desired[:2] is [0,0] cause else we divide by 0
+    projection_xy = np.zeros(2) if np.linalg.norm(vel_desired[:2]) == 0 else np.linalg.norm(pos[:2]) * np.cos(angle_diff)*vel_desired[:2]/np.linalg.norm(vel_desired[:2])
+    # projects tilt rotation to itself if not 0 (we don't want to do bigger steps than possible)
+    projection_angle = 0 if vel_desired[2] == 0 else pos[2]
+    # + init_pos cause else we assume that it start in 0,0
+    pos_desired_last = np.append(projection_xy, projection_angle) + init_pos
     pos_desired = pos_desired_last + dt * vel_desired
-    #if final desired point is nearly reached -> point is final point
-    pos_desired = [
-        pos_desired[0] if not np.isclose(pos_desired_last[0], final_pos[0], 2*dt, dt) else final_pos[0],
-        pos_desired[1] if not np.isclose(pos_desired_last[1], final_pos[1], 2*dt, dt) else final_pos[1],
-        pos_desired[2] if not np.isclose(pos_desired_last[2], final_pos[2], 2*dt, dt) else final_pos[2]
 
-    ]
 
-    #TODO obsolete if I continue using de/dt
-    vel_desired = [
-        vel_desired[0] if not np.isclose(pos_desired_last[0], final_pos[0], 2 * dt, dt) else 0,
-        vel_desired[1] if not np.isclose(pos_desired_last[1], final_pos[1], 2 * dt, dt) else 0,
-        vel_desired[2] if not np.isclose(pos_desired_last[2], final_pos[2], 2 * dt, dt) else 0
-    ]
 
-    rotated_pos_x = np.cos(-angle) * np.array(pos[0]) - np.sin(-angle) * np.array(pos[1])
-    rotated_pos_y = np.sin(-angle) * np.array(pos[0]) + np.cos(-angle) * np.array(pos[1])
-
-    # append next pos_error
-    pos_error = pos_desired - pos #[rotated_pos_x, rotated_pos_y]
+    pos_error = pos_desired - pos
     # handle rotation error in corresponding shorter direction
     pos_error[2] = ((pos_error[2] + np.pi) % (2 * np.pi) - np.pi)
-
     # append the new error to the list for ki
     pos_errors.append(pos_error)
 
 
-    # param for kd
-    de = pos_errors[-1] - pos_errors[-2]
+    u = kp * (pos_error) + kd * (vel_desired - vel) + ki * np.trapz(pos_errors, dx=dt, axis=0)
 
-    #u = kp * (pos_error) + kd * (vel_desired - vel) + ki * np.trapz(pos_errors, dx=dt) todo obsolete if I continue with de/dt
-    u = kp * (pos_error) + kd * (de/dt) + ki * np.trapz(pos_errors, dx=dt, axis=0)
-
-    # rotate resulting corrections corresponding to robots orientation
+    # rotate resulting corrections corresponding to robots orientation else it does the correction calculated in the absolute coordinate sys from its on perspective
     rotated_x = np.cos(-angle) * np.array(u[0]) - np.sin(-angle) * np.array(u[1])
     rotated_y = np.sin(-angle) * np.array(u[0]) + np.cos(-angle) * np.array(u[1])
 
-    # calc the maimum velocities in x,y dir
+    # calc the maximum velocities in x,y dir corresponding to the values from the kp-controller
     alpha = np.arctan2(rotated_y, rotated_x)
     L_max = np.sqrt(np.square(np.cos(alpha) * max_x) + np.square(np.sin(alpha) * max_y))
     max_vel = np.array([np.cos(alpha) * L_max, np.sin(alpha) * L_max])
 
     # clip the resulted velocities
-    u[0] = np.clip(rotated_x, -max_vel[0], max_vel[0])
-    u[1] = np.clip(rotated_y, -max_vel[1], max_vel[1])
+    u[0] = np.clip(rotated_x, -max_vel[0], max_vel[0])#  np.clip(rotated_x, -max_vel[0], max_vel[0]) #np.clip(u[0], -max_x, max_x) #
+    u[1] = np.clip(rotated_y, -max_vel[1], max_vel[1])#  np.clip(rotated_y, -max_vel[1], max_vel[1]) #np.clip(u[1], -max_y, max_y) #
     u[2] = np.clip(u[2], -max_z, max_z)
-
 
     return u, pos_desired, pos_errors
 
-def execute_controller(desired_state_lst, seed=0, appendix=''):
+def execute_controller(desired_vel_lst, seed=0, appendix=''):
     # Construct simulator
     if FLAGS.show_gui and not FLAGS.use_real_robot:
         p = bullet_client.BulletClient(connection_mode=pybullet.GUI)
@@ -366,8 +356,6 @@ def execute_controller(desired_state_lst, seed=0, appendix=''):
 
     # for normalization of the actions
     states = [list() for i in range(38)]
-
-    # for action normalization
     high = np.array(
         [0.802851455917, 4.18879020479, -0.916297857297, 0.802851455917, 4.18879020479, -0.916297857297, 0.802851455917
             , 4.18879020479, -0.916297857297, 0.802851455917, 4.18879020479, -0.916297857297])
@@ -382,16 +370,20 @@ def execute_controller(desired_state_lst, seed=0, appendix=''):
     norm_act_delta_torque = (high - low) / 2.0
     np.random.seed(seed)
 
+    #for plotting
     set_point = [[],[],[]]
     act_point = [[],[],[]]
-    desired_state = desired_state_lst[0]
-    last_desired_state = np.append(robot.GetBasePosition()[:2], robot.GetTrueBaseRollPitchYaw()[2])
-    desired_state_counter = 0
-    velocities = [[],[], []] # for plotting/fietuning
+
+    desired_vel_counter = 0
+    # for plotting/finetuning
+    velocities = [[],[], []]
     lin_speed=[[],[],[]]
-    # next sub position/ intermediate step
+
+    # next sub position/ intermediate step; need for direction changes
     sub_pos_desired = np.append(robot.GetBasePosition()[:2], robot.GetTrueBaseRollPitchYaw()[2])
     pos_errors = [[0,0,0]]
+    # position where to start
+    init_pos = np.append(robot.GetBasePosition()[:2], robot.GetTrueBaseRollPitchYaw()[2])
     while current_time - start_time < FLAGS.max_time_secs:
 
         start_time_robot = current_time
@@ -401,7 +393,7 @@ def execute_controller(desired_state_lst, seed=0, appendix=''):
 
 
 
-
+        # get current state
         angle = robot.GetTrueBaseRollPitchYaw()[2]
         x, y = robot.GetBasePosition()[:2]
         act_pos = np.array([x, y, ((angle + np.pi) % (2 * np.pi) - np.pi)])
@@ -410,25 +402,22 @@ def execute_controller(desired_state_lst, seed=0, appendix=''):
         act_vel = np.array([vx, vy, v_angle])
 
 
-        # if desired_state reached
-        """
-        e = 0.01
-        if (np.abs(act_pos[0]-desired_state[0]) < e) and (np.abs(act_pos[1]-desired_state[1])) < e and (np.abs(act_pos[2]-((desired_state[2] + np.pi) % (2 * np.pi) - np.pi)) < e):
-            desired_state_counter += 1
-            if (desired_state_counter<len(desired_state_lst)):
-                last_desired_state = desired_state
-                desired_state = desired_state_lst[desired_state_counter]
-                print(desired_state)
-            else:
-                break"""
 
+
+        #if speed vec is executed long enough
+        if current_time == desired_vel_lst[desired_vel_counter][3]:
+            if (desired_vel_counter < len(desired_vel_lst)):
+                desired_vel_counter += 1
+                first_pos = sub_pos_desired
+            else:
+                break
 
 
 
         # for plotting
-        set_point[0].append(desired_state[0])
-        set_point[1].append(desired_state[1])
-        set_point[2].append(desired_state[2])
+        set_point[0].append(sub_pos_desired[0])
+        set_point[1].append(sub_pos_desired[1])
+        set_point[2].append(sub_pos_desired[2])
         act_point[0].append(act_pos[0])
         act_point[1].append(act_pos[1])
         act_point[2].append(act_pos[2])
@@ -436,32 +425,26 @@ def execute_controller(desired_state_lst, seed=0, appendix=''):
 
         dt = robot.time_step
 
-        """
-        x_diff = desired_state[0] - last_desired_state[0]
-        y_diff = desired_state[1] - last_desired_state[1]
+        speed_vec = np.array(desired_vel_lst[desired_vel_counter])
 
-        #rotated_x = np.cos(-angle) * np.array(x_diff) - np.sin(-angle) * np.array(y_diff)
-        #rotated_y = np.sin(-angle) * np.array(x_diff) + np.cos(-angle) * np.array(y_diff)
-
-        alpha = np.arctan2(y_diff, x_diff)
-        L_max = np.sqrt(np.square(np.cos(alpha) * max_x) + np.square(np.sin(alpha) * max_y))
-        vel_desired = np.array([np.cos(alpha) * L_max, np.sin(alpha) * L_max, np.clip(desired_state[2] - last_desired_state[2], -max_z, max_z)])"""
-
-
-
-        #todo dont use to big steps else the error returns
-        # todo velocities
-        # todo direction arrow with
-        # todo change whole system to work with velos instead of points
-
-        # todo:::::
-        # TODO LOCOMOTION: model bekommt geschwindigkeitsvektoren nicht positionen; speed_vector; direction agnle bei rotation, schrittgröße
-        # TODO IRL: logging methode testen/einführen;
+        # calculates the desired velocity depending on the maximum velocities in x,y,rot out of the input speed_vec
+        alpha = np.arctan2(speed_vec[1], speed_vec[0])
+        # - angle to consider the maximum velo the robot is able to walk in this direction
+        L_max = np.sqrt(np.square(np.cos(alpha-angle) * max_x) + np.square(np.sin(alpha-angle) * max_y))
+        # if speed_vec = [0,0] desired velocity should be 0 instead of max
+        vel_desired_x = np.cos(alpha) * L_max if speed_vec.any() else 0
+        vel_desired_y = np.sin(alpha) * L_max if speed_vec.any() else 0
+        vel_desired = np.array([vel_desired_x, vel_desired_y, np.clip(speed_vec[2], -max_z, max_z)])
 
 
-        u, sub_pos_desired, pos_errors = follow_trajectory(sub_pos_desired, act_pos,vel_desired, act_vel, dt, pos_errors, desired_state, angle)
+
+        # todo clean up; finetune; move path var in launcher -> start job with side walking
+
+        u, sub_pos_desired, pos_errors = follow_trajectory(pos=act_pos, vel_desired=vel_desired, vel=act_vel, dt=dt,
+                                                           pos_errors=pos_errors, angle=angle, init_pos=init_pos)
 
 
+        #parameters for the controller
         lin_speed[:2] = u[:2]
         ang_speed = u[2]
         lin_speed[2] = 0 # z velocity is always 0
@@ -469,21 +452,11 @@ def execute_controller(desired_state_lst, seed=0, appendix=''):
         velocities[0].append(lin_speed[0])
         velocities[1].append(lin_speed[1])
         velocities[2].append(ang_speed)
-        e_stop = False
-
-
-
-
-
-
-
-
-        if e_stop:
-            logging.info("E-stop kicked, exiting...")
-            break
         _update_controller_params(controller, lin_speed, ang_speed)
         controller.update()
         hybrid_action, info = controller.get_action()  # time consuming
+
+        #add noise if neccesary
         noise = np.random.rand(60) * 0.1
         if seed != 0:
             hybrid_action += noise
@@ -502,25 +475,24 @@ def execute_controller(desired_state_lst, seed=0, appendix=''):
         actions_pos.append((robot.GetTrueMotorAngles() - norm_act_mean_pos) / norm_act_delta_pos)
         # collect actions - torques
         actions_torque.append((robot.GetTrueMotorTorques() - norm_act_mean_torque) / norm_act_delta_torque)
-        # print(np.arccos(np.clip(np.dot(lin_speed[0], lin_speed[1]), -1.0, 1.0)))
 
 
-        # turn angle into matrix
-        angle_goal = np.arctan2(desired_state[1] - last_desired_state[1], desired_state[0] - last_desired_state[0])
+        #´calc direction from the point of view of the robot
+        vel_desired_x = np.cos(alpha-angle) * L_max if speed_vec.any() else 0
+        vel_desired_y = np.sin(alpha-angle) * L_max if speed_vec.any() else 0
+        vel_desired = np.array([vel_desired_x, vel_desired_y, np.clip(speed_vec[2], -max_z, max_z)])
 
-        angle_goal -= last_desired_state[2]
+        #calc angle and turn into matrix for direction arrow
+        angle_goal = np.arctan2(vel_desired[1], vel_desired[0])
         R = np.array([[np.cos(angle_goal), -np.sin(angle_goal), 0], [np.sin(angle_goal), np.cos(angle_goal), 0], [0, 0, 1]])
         arrow = np.array([0, 0, 1, 1, 0, 0, 0, 1, 0]).reshape((3, 3))
         rotation_matrix_dir = np.dot(R, arrow).reshape((9,))
         states[36].append(rotation_matrix_dir)
 
         # states for goal velocity; fixed per desired state
-        speed = np.round(np.linalg.norm(vel_desired[:2]), 5)
-        print(speed)
-        states[37].append(speed) # TODO correct? I rotate with the tilt of the body
+        states[37].append(L_max)
 
 
-        # print('State: ', temp)
         robot.Step(hybrid_action)
         current_time = robot.GetTimeSinceReset()
         if not FLAGS.use_real_robot:
@@ -571,7 +543,7 @@ def execute_controller(desired_state_lst, seed=0, appendix=''):
     data = {
         "x_vel": velocities[0],
         "y_vel": velocities[1],
-        "rot_vel": velocities[2]
+        #"rot_vel": velocities[2]
     }
 
     fig = plt.figure()
