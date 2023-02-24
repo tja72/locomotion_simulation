@@ -192,7 +192,9 @@ def main(argv):
             # list of a set of velocitie vectors
             # a velocity vector consists of [vel_x, vel_y vel_tilt, time in sec until when it should be executed(if None infinity)]
             # vel_x and y will be scaled down to the maximum velocity while containing the ratio
-            desired_vel_lst_lst = [[[0,1,0, None]]]#[[[0,0,np.pi], [1,1,np.pi], [1,0,np.pi/2], [0,0,np.pi]]] #[[[-50, 0, 0]]] #[[[50, 0, 0]], [[-50, 0, 0]], [[0, -50, 0]], [[0, 50, 0]], [[50, 50, 0]], [[50, -50, 0]], [[-50, 50, 0]], [[-50, -50, 0]]]
+            desired_vel_lst_lst = [[[1, 0, 0, None]], [[-1, 0, 0, None]], [[0, 1, 0, None]], [[0, -1, 0, None]],
+                                    [[1, 1, 0, None]],[[1, -1, 0, None]],[[-1, 1, 0, None]],[[-1, -1, 0, None]]]
+            ##[[[0,0,np.pi], [1,1,np.pi], [1,0,np.pi/2], [0,0,np.pi]]] #[[[-50, 0, 0]]] #[[[50, 0, 0]], [[-50, 0, 0]], [[0, -50, 0]], [[0, 50, 0]], [[50, 50, 0]], [[50, -50, 0]], [[-50, 50, 0]], [[-50, -50, 0]]]
 
             #appendix = ["_50k_left", "_50k_right", "_50k_FL", "_50k_FR", "_50k_BL", "_50k_BR", "_50k_forward", "_50k_backward"]
 
@@ -263,24 +265,33 @@ def main(argv):
             message = "Exception occured: Typ " + str(type) + "Str " + str(e) + "Traceback " + str(traceback.tb_frame) + str(traceback.tb_lineno)
             discord.post(content=message)
 
-
-def follow_trajectory(pos, vel_desired, vel, dt, pos_errors, angle, init_pos): # todo weniger parameter
+def follow_trajectory(pos, vel_desired, vel, dt, pos_errors, angle, init_pos, errors_sum, pos_desired_last):
 
     #controller params
-    kp = [100, 80, 100]
-    kd = [10, 50, 30]
-    ki = [40, 1.5, 1]
+    kp = [200, 100, 100]#[200, 200, 100]
+    kd = [10, 20, 10]# [10, 20, 40]   30
+    ki = [20, 30, 1]#[-40, -20, -4] [50, 10, 1]#[10, 5, 1]
 
+
+
+    """
     #next desired position
-    angle_diff = np.arctan2(vel_desired[1], vel_desired[0]) - np.arctan2(pos[1], pos[0])
+    a = np.arctan2(vel_desired[1], vel_desired[0])
+    b = np.arctan2(pos[1]+init_pos[1], pos[0]+init_pos[0])
+    angle_diff = np.arctan2(vel_desired[1], vel_desired[0]) - np.arctan2(pos[1]+init_pos[1], pos[0]+init_pos[0])
+    #angle_diff = 0
     # projects the position to the desired speed_vector to prevent too large differents between the pos_desired and the pos (still in the same direction, still the same step size but we reset the last desired pos to the point the robot actually reached (on that desired_vel vector)
     # is [0,0] if vel_desired[:2] is [0,0] cause else we divide by 0
-    projection_xy = np.zeros(2) if np.linalg.norm(vel_desired[:2]) == 0 else np.linalg.norm(pos[:2]) * np.cos(angle_diff)*vel_desired[:2]/np.linalg.norm(vel_desired[:2])
+    projection_xy = np.zeros(2) if np.linalg.norm(vel_desired[:2]) == 0 else  (vel_desired[:2].dot(pos[:2]))/np.square(np.linalg.norm(vel_desired[:2]))* vel_desired[:2]#np.linalg.norm(pos[:2]) * np.cos(angle_diff)*vel_desired[:2]/np.linalg.norm(vel_desired[:2])
+    a = np.arctan2(vel_desired[1], vel_desired[0])
+    c = pos[0] - init_pos[0]
+    projection_xy = np.linalg.norm(pos[0]-init_pos[0]) * np.array([np.cos(a), np.sin(a)])
     # projects tilt rotation to itself if not 0 (we don't want to do bigger steps than possible)
     projection_angle = 0 if vel_desired[2] == 0 else pos[2]
     # + init_pos cause else we assume that it start in 0,0
-    pos_desired_last = np.append(projection_xy, projection_angle) + init_pos
-    pos_desired = pos_desired_last + dt * vel_desired
+    pos_desired_last = np.append(projection_xy, projection_angle) + init_pos"""
+    pos_desired = pos_desired_last + dt * 0.46 * vel_desired # 0.53
+
 
 
 
@@ -289,9 +300,10 @@ def follow_trajectory(pos, vel_desired, vel, dt, pos_errors, angle, init_pos): #
     pos_error[2] = ((pos_error[2] + np.pi) % (2 * np.pi) - np.pi)
     # append the new error to the list for ki
     pos_errors.append(pos_error)
+    errors_sum += pos_error * dt
 
-
-    u = kp * (pos_error) + kd * (vel_desired - vel) + ki * np.trapz(pos_errors, dx=dt, axis=0)
+    #todo hanged vel_desired-vel with de/dt
+    u = kp * (pos_error) + kd * (vel_desired - vel) + ki * np.trapz(pos_errors, dx=dt, axis=0)#errors_sum#(pos_errors[-1]-pos_errors[-2]) / dt # #+ ki * errors_sum#np.trapz(pos_errors, dx=dt, axis=0)
 
     # rotate resulting corrections corresponding to robots orientation else it does the correction calculated in the absolute coordinate sys from its on perspective
     rotated_x = np.cos(-angle) * np.array(u[0]) - np.sin(-angle) * np.array(u[1])
@@ -307,7 +319,10 @@ def follow_trajectory(pos, vel_desired, vel, dt, pos_errors, angle, init_pos): #
     u[1] = np.clip(rotated_y, -max_vel[1], max_vel[1])#  np.clip(rotated_y, -max_vel[1], max_vel[1]) #np.clip(u[1], -max_y, max_y) #
     u[2] = np.clip(u[2], -max_z, max_z)
 
-    return u, pos_desired, pos_errors
+
+
+
+    return u, pos_desired, pos_errors, errors_sum
 
 def execute_controller(desired_vel_lst, seed=0, appendix=''):
     # Construct simulator
@@ -384,6 +399,11 @@ def execute_controller(desired_vel_lst, seed=0, appendix=''):
     pos_errors = [[0,0,0]]
     # position where to start
     init_pos = np.append(robot.GetBasePosition()[:2], robot.GetTrueBaseRollPitchYaw()[2])
+    errors_sum = np.zeros(3)
+    int_error = [0]
+
+    des_vels = [[], [], []]
+
     while current_time - start_time < FLAGS.max_time_secs:
 
         start_time_robot = current_time
@@ -408,7 +428,7 @@ def execute_controller(desired_vel_lst, seed=0, appendix=''):
         if current_time == desired_vel_lst[desired_vel_counter][3]:
             if (desired_vel_counter < len(desired_vel_lst)):
                 desired_vel_counter += 1
-                first_pos = sub_pos_desired
+                init_pos = sub_pos_desired
             else:
                 break
 
@@ -427,21 +447,29 @@ def execute_controller(desired_vel_lst, seed=0, appendix=''):
 
         speed_vec = np.array(desired_vel_lst[desired_vel_counter])
 
+        vel_desired_angle = np.clip(speed_vec[2], -0.85*max_z, 0.85*max_z)
         # calculates the desired velocity depending on the maximum velocities in x,y,rot out of the input speed_vec
         alpha = np.arctan2(speed_vec[1], speed_vec[0])
-        # - angle to consider the maximum velo the robot is able to walk in this direction
-        L_max = np.sqrt(np.square(np.cos(alpha-angle) * max_x) + np.square(np.sin(alpha-angle) * max_y))
+        if vel_desired_angle != 0:
+            alpha_rot = alpha - angle # - angle to consider the maximum velo the robot is able to walk in this direction
+        else:
+            alpha_rot = alpha - init_pos[2]
+        L_max = np.sqrt(np.square(np.cos(alpha_rot) * max_x*0.85) + np.square(np.sin(alpha_rot) * max_y*0.85))
         # if speed_vec = [0,0] desired velocity should be 0 instead of max
-        vel_desired_x = np.cos(alpha) * L_max if speed_vec.any() else 0
-        vel_desired_y = np.sin(alpha) * L_max if speed_vec.any() else 0
-        vel_desired = np.array([vel_desired_x, vel_desired_y, np.clip(speed_vec[2], -max_z, max_z)])
-
+        vel_desired_x = (np.cos(alpha) * L_max) if speed_vec[:2].any() else 0
+        vel_desired_y = (np.sin(alpha) * L_max) if speed_vec[:2].any() else 0
+        b = speed_vec.any()
+        vel_desired = np.array([vel_desired_x, vel_desired_y, vel_desired_angle])
+        des_vels[0].append(vel_desired_x)
+        des_vels[1].append(vel_desired_y)
+        des_vels[2].append(vel_desired_angle)
 
 
         # todo clean up; finetune; move path var in launcher -> start job with side walking
 
-        u, sub_pos_desired, pos_errors = follow_trajectory(pos=act_pos, vel_desired=vel_desired, vel=act_vel, dt=dt,
-                                                           pos_errors=pos_errors, angle=angle, init_pos=init_pos)
+        u, sub_pos_desired, pos_errors, errors_sum = follow_trajectory(pos=act_pos, vel_desired=vel_desired, vel=act_vel, dt=dt,
+                                                           pos_errors=pos_errors, angle=angle, init_pos=init_pos, errors_sum=errors_sum, pos_desired_last=sub_pos_desired)
+        int_error.append(np.trapz(np.array(pos_errors)[:,2], axis=0, dx=dt))
 
 
         #parameters for the controller
@@ -477,9 +505,11 @@ def execute_controller(desired_vel_lst, seed=0, appendix=''):
         actions_torque.append((robot.GetTrueMotorTorques() - norm_act_mean_torque) / norm_act_delta_torque)
 
 
-        #´calc direction from the point of view of the robot
-        vel_desired_x = np.cos(alpha-angle) * L_max if speed_vec.any() else 0
-        vel_desired_y = np.sin(alpha-angle) * L_max if speed_vec.any() else 0
+        #calc direction from the point of view of the robot
+        # rotate arrow with 0 if 0 rotation is wanted else with the actual reached rotation
+        wanted_rot = 0 if speed_vec[2] == 0 else angle
+        vel_desired_x = np.cos(alpha-wanted_rot) * L_max if speed_vec.any() else 0
+        vel_desired_y = np.sin(alpha-wanted_rot) * L_max if speed_vec.any() else 0
         vel_desired = np.array([vel_desired_x, vel_desired_y, np.clip(speed_vec[2], -max_z, max_z)])
 
         #calc angle and turn into matrix for direction arrow
@@ -503,6 +533,54 @@ def execute_controller(desired_vel_lst, seed=0, appendix=''):
 
 
     # Plotting
+    """
+    act_point = np.array(act_point)
+    set_point = np.array(set_point)
+
+    data = {
+        "act_vel_x": states[18],
+        "act_vel_y": states[19],
+        #"act_vel_rot": states[23],
+        "des_vel_x": des_vels[0],
+        "des_vel_y": des_vels[1],
+        #"des_vel_rot": des_vels[2]
+    }
+
+    fig = plt.figure()
+    ax = fig.gca()
+    colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+
+    for i, v in enumerate(data.items()):
+        ax.plot(v[1], color=colors[i], linestyle='-', label=v[0])
+        ax.set_ylim(-0.85, 0.85)
+        ax.hlines(y=0.11, xmin=0, xmax=len(v[1]), linewidth=1, color="red")
+        ax.hlines(y=-0.13, xmin=0, xmax=len(v[1]), linewidth=2, color="red")
+
+    plt.legend(loc=4)
+    plt.xlabel("Time")
+    plt.ylabel("Vel")
+    plt.savefig("act_vel.png")
+
+    # Plotting
+
+    data = {
+        "integrat_error": np.array(int_error),
+    }
+
+    fig = plt.figure()
+    ax = fig.gca()
+    colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+
+    for i, v in enumerate(data.items()):
+        ax.plot(v[1], color=colors[i], linestyle='-', label=v[0])
+    plt.legend(loc=4)
+    plt.xlabel("Time")
+    plt.ylabel("error")
+    plt.savefig("intg_error.png")
+
+
+
+
     act_point = np.array(act_point)
     set_point = np.array(set_point)
 
@@ -554,7 +632,7 @@ def execute_controller(desired_vel_lst, seed=0, appendix=''):
         ax.plot(v[1], color=colors[i], linestyle='-', label=v[0])
     plt.legend(loc=4)
     plt.xlabel("Time")
-    plt.ylabel("Position")
+    plt.ylabel("Vel")
     plt.savefig("velocities.png")
 
 
@@ -581,7 +659,7 @@ def execute_controller(desired_vel_lst, seed=0, appendix=''):
     plt.savefig("rot.png")
 
     # ------------------------------------------------------------------------------------------------------------------
-
+    """
     if FLAGS.use_gamepad:
         gamepad.stop()
 
