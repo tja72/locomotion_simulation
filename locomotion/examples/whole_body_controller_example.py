@@ -89,29 +89,6 @@ max_y = 0.4
 max_rot = 0.8
 
 
-def _generate_example_linear_angular_speed(t):
-    """Creates an example speed profile based on time for demo purpose."""
-    vx = 0
-    vy = 0.4
-    wz = -0.016  # finetuned rot for strict lines :-0.016 for left side; 0.028 for right side; 0.086 for Back right; 0.0419 for Front right; -0.0319 for Front Left; -0.043 for Back Left
-    vz = .1
-
-    time_points = (0, 2, 4, 6, 8, 10, 20, 30, 40, 50, 70, 80, 100, 200, 300, 400)
-    speed_points = ((0, 0, 0, 0),
-                    (vx, vy, 0, wz), (vx, vy, 0, wz), (vx, vy, 0, wz),
-                    (vx, vy, 0, wz), (vx, vy, 0, wz), (vx, vy, 0, wz),
-                    (vx, vy, 0, wz), (vx, vy, 0, wz), (vx, vy, 0, wz),
-                    (vx, vy, 0, wz), (vx, vy, 0, wz), (vx, vy, 0, wz),
-                    (vx, vy, 0, wz), (vx, vy, 0, wz), (vx, vy, 0, wz),
-                    )
-
-    speed = scipy.interpolate.interp1d(time_points,
-                                       speed_points,
-                                       kind="previous",
-                                       fill_value="extrapolate",
-                                       axis=0)(t)
-
-    return speed[0:3], speed[3], False
 
 
 def _setup_controller(robot):
@@ -173,73 +150,68 @@ def main(argv):
                               datetime.now().strftime('%Y_%m_%d_%H_%M_%S'))
         os.makedirs(logdir)
 
-    discord = Discord(
-        url="https://discordapp.com/api/webhooks/1065410497010213004/ufF-beaSOUyU-_LbbMkThY8P1j06HyWoSSHc8DCNVkNpMVhqGPcVomKStbYKwIrGEol6")
-    try:
-        nr_of_seeds = 1
-        desired_vel_lst_lst = [
-            [[1, 0, 0, None]]]  # [[[1, 0, 0, None]], [[-1, 0, 0, None]], [[0, 1, 0, None]], [[0, -1, 0, None]],
-        # [[1, 1, 0, None]],[[1, -1, 0, None]],[[-1, 1, 0, None]],[[-1, -1, 0, None]]]
 
-        split_points = [0]
-        states = [list() for i in range(38)]
-        actions_pos = []
-        actions_torque = []
-        for j in range(len(desired_vel_lst_lst)):
-            print("Starting simulation of ", j + 1, '/', len(desired_vel_lst_lst))
-            for i in range(nr_of_seeds):
-                print("    direction ", j + 1, '/', len(desired_vel_lst_lst))
-                print("    with seed=" + str(i), "; desired_vel_lst=", desired_vel_lst_lst[j])
-                states_temp, action_pos_temp, actions_torque_temp = execute_controller(
-                    desired_vel_lst=desired_vel_lst_lst[j], seed=i)
-                assert len(states_temp) == len(states), "has to be the same length/obs spec"
-                split_points.append(len(states_temp[0]) + split_points[-1])
-                states = [states[k] + states_temp[k] for k in range(len(states))]
-                actions_pos += action_pos_temp
-                actions_torque += actions_torque_temp
+    nr_of_seeds = 3
+    #defines the desired velocities; x,y,rotation velocitiy, time hhow long to follow this vector; after this time the model follows the next vector in the list
+    desired_vel_lst_lst = [[[1, 0, 0, None]], [[-1, 0, 0, None]], [[0, 1, 0, None]], [[0, -1, 0, None]],
+                           [[1, 1, 0, None]],[[1, -1, 0, None]],[[-1, 1, 0, None]],[[-1, -1, 0, None]]]
 
-        # store one long dataset
-        if FLAGS.logdir:
-            np.savez(os.path.join(logdir, 'actions_position.npz'), action=actions_pos)
-            np.savez(os.path.join(logdir, 'actions_torque.npz'), action=actions_torque)
-            np.savez(os.path.join(logdir, 'states.npz'),  # rpy
-                     q_trunk_tx=np.array(states[0]), q_trunk_ty=np.array(states[1]), q_trunk_tz=np.array(states[2]),
-                     q_trunk_tilt=np.array(states[5]), q_trunk_list=np.array(states[3]),
-                     q_trunk_rotation=np.array(states[4]),
-                     q_FR_hip_joint=np.array(states[6]), q_FR_thigh_joint=np.array(states[7]),
-                     q_FR_calf_joint=np.array(states[8]),
-                     q_FL_hip_joint=np.array(states[9]), q_FL_thigh_joint=np.array(states[10]),
-                     q_FL_calf_joint=np.array(states[11]),
-                     q_RR_hip_joint=np.array(states[12]), q_RR_thigh_joint=np.array(states[13]),
-                     q_RR_calf_joint=np.array(states[14]),
-                     q_RL_hip_joint=np.array(states[15]), q_RL_thigh_joint=np.array(states[16]),
-                     q_RL_calf_joint=np.array(states[17]),
-                     dq_trunk_tx=np.array(states[18]), dq_trunk_ty=np.array(states[19]),
-                     dq_trunk_tz=np.array(states[20]),
-                     dq_trunk_tilt=np.array(states[23]), dq_trunk_list=np.array(states[21]),
-                     dq_trunk_rotation=np.array(states[22]),
-                     dq_FR_hip_joint=np.array(states[24]), dq_FR_thigh_joint=np.array(states[25]),
-                     dq_FR_calf_joint=np.array(states[26]),
-                     dq_FL_hip_joint=np.array(states[27]), dq_FL_thigh_joint=np.array(states[28]),
-                     dq_FL_calf_joint=np.array(states[29]),
-                     dq_RR_hip_joint=np.array(states[30]), dq_RR_thigh_joint=np.array(states[31]),
-                     dq_RR_calf_joint=np.array(states[32]),
-                     dq_RL_hip_joint=np.array(states[33]), dq_RL_thigh_joint=np.array(states[34]),
-                     dq_RL_calf_joint=np.array(states[35]),
-                     dir_arrow=np.array(states[36]), goal_speed=np.array(states[37]),
-                     split_points=np.array(split_points))
-            logging.info("logged to: {}".format(logdir))
+    split_points = [0]
+    states = [list() for i in range(38)]
+    actions_pos = []
+    actions_torque = []
+    for j in range(len(desired_vel_lst_lst)):
+        print("Starting simulation of ", j + 1, '/', len(desired_vel_lst_lst))
+        for i in range(nr_of_seeds):
+            print("    direction ", j + 1, '/', len(desired_vel_lst_lst))
+            print("    with seed=" + str(i), "; desired_vel_lst=", desired_vel_lst_lst[j])
+            states_temp, action_pos_temp, actions_torque_temp = execute_controller(
+                desired_vel_lst=desired_vel_lst_lst[j], seed=i)
+            assert len(states_temp) == len(states), "has to be the same length/obs spec"
+            split_points.append(len(states_temp[0]) + split_points[-1])
+            states = [states[k] + states_temp[k] for k in range(len(states))]
+            actions_pos += action_pos_temp
+            actions_torque += actions_torque_temp
 
-        message = "successfully finished all " + str(len(desired_vel_lst_lst) * nr_of_seeds) + " datasets!"
-        discord.post(content=message)
-    except NotImplementedError as e:
-        type, value, traceback = sys.exc_info()
-        message = "Exception occured: Typ " + str(type) + "Str " + str(e) + "Traceback " + str(
-            traceback.tb_frame) + str(traceback.tb_lineno)
-        discord.post(content=message)
+    # store one long dataset
+    if FLAGS.logdir:
+        np.savez(os.path.join(logdir, 'actions_position.npz'), action=actions_pos)
+        np.savez(os.path.join(logdir, 'actions_torque.npz'), action=actions_torque)
+        np.savez(os.path.join(logdir, 'states.npz'),  # rpy
+                 q_trunk_tx=np.array(states[0]), q_trunk_ty=np.array(states[1]), q_trunk_tz=np.array(states[2]),
+                 q_trunk_rotation=np.array(states[5]), q_trunk_list=np.array(states[3]),
+                 q_trunk_tilt=np.array(states[4]),
+                 q_FR_hip_joint=np.array(states[6]), q_FR_thigh_joint=np.array(states[7]),
+                 q_FR_calf_joint=np.array(states[8]),
+                 q_FL_hip_joint=np.array(states[9]), q_FL_thigh_joint=np.array(states[10]),
+                 q_FL_calf_joint=np.array(states[11]),
+                 q_RR_hip_joint=np.array(states[12]), q_RR_thigh_joint=np.array(states[13]),
+                 q_RR_calf_joint=np.array(states[14]),
+                 q_RL_hip_joint=np.array(states[15]), q_RL_thigh_joint=np.array(states[16]),
+                 q_RL_calf_joint=np.array(states[17]),
+                 dq_trunk_tx=np.array(states[18]), dq_trunk_ty=np.array(states[19]),
+                 dq_trunk_tz=np.array(states[20]),
+                 dq_trunk_rotation=np.array(states[23]), dq_trunk_list=np.array(states[21]),
+                 dq_trunk_tilt=np.array(states[22]),
+                 dq_FR_hip_joint=np.array(states[24]), dq_FR_thigh_joint=np.array(states[25]),
+                 dq_FR_calf_joint=np.array(states[26]),
+                 dq_FL_hip_joint=np.array(states[27]), dq_FL_thigh_joint=np.array(states[28]),
+                 dq_FL_calf_joint=np.array(states[29]),
+                 dq_RR_hip_joint=np.array(states[30]), dq_RR_thigh_joint=np.array(states[31]),
+                 dq_RR_calf_joint=np.array(states[32]),
+                 dq_RL_hip_joint=np.array(states[33]), dq_RL_thigh_joint=np.array(states[34]),
+                 dq_RL_calf_joint=np.array(states[35]),
+                 dir_arrow=np.array(states[36]), goal_speed=np.array(states[37]),
+                 split_points=np.array(split_points))
+        logging.info("logged to: {}".format(logdir))
+
+
 
 
 def follow_trajectory(pos_desired_last, pos, vel_desired, vel, pos_errors, dt, angle):
+    """
+    calculates the next desired point and the required velocities to reach this point
+    """
     # controller params
     kp = [200, 100, 100]
     kd = [10, 20, 10]
@@ -255,9 +227,9 @@ def follow_trajectory(pos_desired_last, pos, vel_desired, vel, pos_errors, dt, a
     pos_errors.append(pos_error)
 
     u = kp * (pos_error) + kd * (vel_desired - vel) + ki * np.trapz(pos_errors, dx=dt,
-                                                                    axis=0)  # (pos_errors[-1]-pos_errors[-2]) / dt
+                                                                    axis=0)
 
-    # rotate resulting corrections corresponding to robots orientation else it does the correction calculated in the absolute coordinate sys from its on perspective
+    # rotate resulting corrections corresponding to robots orientation else it does the correction calculated in the absolute coordinate sys from its own perspective
     rotated_x = np.cos(-angle) * np.array(u[0]) - np.sin(-angle) * np.array(u[1])
     rotated_y = np.sin(-angle) * np.array(u[0]) + np.cos(-angle) * np.array(u[1])
 
@@ -309,18 +281,18 @@ def execute_controller(desired_vel_lst, seed=0):
 
     controller.reset()
     if FLAGS.use_gamepad:
-        gamepad = gamepad_reader.Gamepad()
-        command_function = gamepad.get_command
-    else:
-        command_function = _generate_example_linear_angular_speed
+        raise NotImplementedError("Isn't implemented since we only need the model for data generation")
 
     start_time = robot.GetTimeSinceReset()
     current_time = start_time
+
+    #for logging
     actions_pos = []
     actions_torque = []
+    states = [list() for i in range(38)]
+    des_vels = [[], [], []]
 
     # for normalization of the actions
-    states = [list() for i in range(38)]
     high = np.array(
         [0.802851455917, 4.18879020479, -0.916297857297, 0.802851455917, 4.18879020479, -0.916297857297, 0.802851455917
             , 4.18879020479, -0.916297857297, 0.802851455917, 4.18879020479, -0.916297857297])
@@ -333,6 +305,8 @@ def execute_controller(desired_vel_lst, seed=0):
     low = np.array([-34, -34, -34, -34, -34, -34, -34, -34, -34, -34, -34, -34])
     norm_act_mean_torque = (high + low) / 2.0
     norm_act_delta_torque = (high - low) / 2.0
+
+    #random seed of the noise
     np.random.seed(seed)
 
     # for plotting
@@ -350,8 +324,6 @@ def execute_controller(desired_vel_lst, seed=0):
     # position where to start
     init_pos = np.append(robot.GetBasePosition()[:2], robot.GetTrueBaseRollPitchYaw()[2])
 
-    # desired velocities for logging
-    des_vels = [[], [], []]
 
     while current_time - start_time < FLAGS.max_time_secs:
 
@@ -376,7 +348,7 @@ def execute_controller(desired_vel_lst, seed=0):
             else:
                 break
 
-        # for plotting
+        # for plotting/finetuning
         set_point[0].append(sub_pos_desired[0])
         set_point[1].append(sub_pos_desired[1])
         set_point[2].append(sub_pos_desired[2])
@@ -386,15 +358,18 @@ def execute_controller(desired_vel_lst, seed=0):
 
         dt = robot.time_step
         speed_vec = np.array(desired_vel_lst[desired_vel_counter])
-        # .0.85 as a range between wanted velo and myxium possible velo
+        # .85 as a range between wanted velo and maxium possible velo
         vel_desired_angle = np.clip(speed_vec[2], -0.85 * max_rot, 0.85 * max_rot)
         # calculates the desired velocity depending on the maximum velocities in x,y,rot out of the input speed_vec
         alpha = np.arctan2(speed_vec[1], speed_vec[0])
         # angle to consider the maximum velo the robot is able to walk in this direction
         if vel_desired_angle != 0:
+            # if the vel_desired_angle is not 0 we want the robot to turn, so we consider the actual trunk rotation
             alpha_rot = alpha - angle
         else:
+            # if the vel_desired_angle is 0 we dont want the robot to turn; so we only substract the initial rotation of the trunk
             alpha_rot = alpha - init_pos[2]
+        # max length of the desired vel vector depending on the maxima and the direction where we want to walk in
         L_max = np.sqrt(np.square(np.cos(alpha_rot) * max_x * 0.85) + np.square(np.sin(alpha_rot) * max_y * 0.85))
         # if speed_vec = [0,0] desired velocity should be 0 instead of max
         vel_desired_x = (np.cos(alpha) * L_max) if speed_vec[:2].any() else 0
@@ -402,6 +377,7 @@ def execute_controller(desired_vel_lst, seed=0):
         # for calcuation of the next sub point
         vel_desired = np.array([vel_desired_x, vel_desired_y, vel_desired_angle])
 
+        #calculate the new velocitiy vectors to reach the new desired subpoint
         u, sub_pos_desired, pos_errors, = follow_trajectory(pos=act_pos, vel_desired=vel_desired, vel=act_vel, dt=dt,
                                                             pos_errors=pos_errors, angle=angle,
                                                             pos_desired_last=sub_pos_desired)
@@ -417,6 +393,8 @@ def execute_controller(desired_vel_lst, seed=0):
         des_vels[0].append(vel_desired_x)
         des_vels[1].append(vel_desired_y)
         des_vels[2].append(vel_desired_angle)
+
+        #update the controller
         _update_controller_params(controller, lin_speed, ang_speed)
         controller.update()
         hybrid_action, info = controller.get_action()  # time consuming
@@ -427,14 +405,15 @@ def execute_controller(desired_vel_lst, seed=0):
             hybrid_action += noise
 
         # collect states data
-        temp = list(robot.GetBasePosition())
+        temp = robot.GetBasePosition()
+        temp = np.append(temp, robot.GetTrueBaseRollPitchYaw())
+        temp = np.append(temp, robot.GetTrueMotorAngles())
+        temp = np.append(temp, robot.GetBaseVelocity())
+        temp = np.append(temp, robot.GetTrueBaseRollPitchYawRate())
+        temp = np.append(temp, robot.GetTrueMotorVelocities())
+        #different z coordinate systems in MPC and mujoco
         temp[2] -= 0.43
-        temp = temp + list(robot.GetTrueBaseRollPitchYaw())
-        temp = temp + list(robot.GetTrueMotorAngles())
-        temp = temp + list(robot.GetBaseVelocity())
-        temp = temp + list(robot.GetTrueBaseRollPitchYawRate())
-        temp = temp + list(robot.GetTrueMotorVelocities())
-        for i in np.arange(len(states) - 2):
+        for i in np.arange(len(states) - 2): # last state will be appended later
             states[i].append(temp[i])
         # collect actions - position
         actions_pos.append((robot.GetTrueMotorAngles() - norm_act_mean_pos) / norm_act_delta_pos)
@@ -460,6 +439,7 @@ def execute_controller(desired_vel_lst, seed=0):
         # store goal velocity
         states[37].append(L_max)
 
+        # perform step
         robot.Step(hybrid_action)
         current_time = robot.GetTimeSinceReset()
         if not FLAGS.use_real_robot:
@@ -468,11 +448,11 @@ def execute_controller(desired_vel_lst, seed=0):
             if actual_duration < expected_duration:
                 time.sleep(expected_duration - actual_duration)
 
-    # Plotting
+    # Plotting ---------------------------------------------------------------------------------------------------------
 
+    # actual vs desired velocities
     act_point = np.array(act_point)
     set_point = np.array(set_point)
-
     data = {
         "act_vel_x": states[18],
         "act_vel_y": states[19],
@@ -481,35 +461,29 @@ def execute_controller(desired_vel_lst, seed=0):
         "des_vel_y": des_vels[1],
         # "des_vel_rot": des_vels[2]
     }
-
     fig = plt.figure()
     ax = fig.gca()
     colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
-
     for i, v in enumerate(data.items()):
         ax.plot(v[1], color=colors[i], linestyle='-', label=v[0])
         ax.set_ylim(-0.85, 0.85)
         ax.hlines(y=0.11, xmin=0, xmax=len(v[1]), linewidth=1, color="red")
         ax.hlines(y=-0.13, xmin=0, xmax=len(v[1]), linewidth=2, color="red")
-
     plt.legend(loc=4)
     plt.xlabel("Time")
     plt.ylabel("Vel")
     plt.savefig("act_vel.png")
 
-    # x-position
+    # actual vs desired x-position
     act_point = np.array(act_point)
     set_point = np.array(set_point)
-
     data = {
         "setpoint": set_point[0],
         "actpoint": act_point[0]
     }
-
     fig = plt.figure()
     ax = fig.gca()
     colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
-
     for i, v in enumerate(data.items()):
         ax.plot(v[1], color=colors[i], linestyle='-', label=v[0])
     plt.legend(loc=4)
@@ -517,16 +491,14 @@ def execute_controller(desired_vel_lst, seed=0):
     plt.ylabel("Position")
     plt.savefig("x.png")
 
-    # ------------------------------------------------------------------------------------------------------------------
+    # actual vs desired y-position
     data = {
         "setpoint": set_point[1],
         "actpoint": act_point[1]
     }
-
     fig = plt.figure()
     ax = fig.gca()
     colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
-
     for i, v in enumerate(data.items()):
         ax.plot(v[1], color=colors[i], linestyle='-', label=v[0])
     plt.legend(loc=4)
@@ -534,17 +506,15 @@ def execute_controller(desired_vel_lst, seed=0):
     plt.ylabel("Position")
     plt.savefig("y.png")
 
-    # ------------------------------------------------------------------------------------------------------------------
+    # actual velocities
     data = {
         "x_vel": velocities[0],
         "y_vel": velocities[1],
         # "rot_vel": velocities[2]
     }
-
     fig = plt.figure()
     ax = fig.gca()
     colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
-
     for i, v in enumerate(data.items()):
         ax.plot(v[1], color=colors[i], linestyle='-', label=v[0])
     plt.legend(loc=4)
@@ -552,15 +522,14 @@ def execute_controller(desired_vel_lst, seed=0):
     plt.ylabel("Vel")
     plt.savefig("velocities.png")
 
+    # actual vs desired rotation position
     data = {
         "setpoint": set_point[2],
         "actpoint": act_point[2]
     }
-
     fig = plt.figure()
     ax = fig.gca()
     colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
-
     for i, v in enumerate(data.items()):
         ax.plot(v[1], color=colors[i], linestyle='-', label=v[0])
     plt.legend(loc=4)
@@ -568,16 +537,13 @@ def execute_controller(desired_vel_lst, seed=0):
     plt.ylabel("Position")
     plt.savefig("rot.png")
 
-    # ------------------------------------------------------------------------------------------------------------------
-
-    if FLAGS.use_gamepad:
-        gamepad.stop()
-
+    # for logging
     return states, actions_pos, actions_torque
 
 
 if __name__ == "__main__":
     app.run(main)
 
+# commands to use the model/data generation
 # python3 -m locomotion.examples.whole_body_controller_example --use_gamepad=False --show_gui=True --use_real_robot=False --max_time_secs=10
 # python3 -m locomotion.examples.whole_body_controller_example --use_gamepad=False --show_gui=False --use_real_robot=False --max_time_secs=102.05 --logdir=log/2D_Walking
