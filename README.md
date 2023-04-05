@@ -1,5 +1,7 @@
 # Python Environments for Unitree A1 Robot
 
+This repository is based on work from @yxyang. It adapted the whole_body_controller_example to use its data for Inverse Reinforcement Learning on the Unitree A1. The new model walks with a maximum speed in the desired direction and interprets the direction in the absolute coodinate system  instead of from the point of view of the robot. That led to an accumulating error in the direction and to unusable data for our purposes. For further details have a look at my thesis.
+
 This is the simulated environment and real-robot interface for the A1 robot. The codebase can be installed directly as a PIP package, or cloned for further configurations.
 
 The codebase also includes a whole-body controller that can walk the robot in both simulation and real world.
@@ -102,8 +104,6 @@ There are 4 commandline flags:
 `use_real_robot`: `True` for using the real robot, `False` for using the simulator.
 
 `show_gui`: (simulation only) whether to visualize the simulated robot in GUI.
-
-`use_gamepad`: whether to control the robot using a gamepad (e.g. Logitech F710), or let the robot follow a demo trajectory.
 
 `max_time_secs`: the amount of time to execute the controller. For real robot testing, it's recommended to start with a small value of `max_time_secs` and gradually increase it.
 
