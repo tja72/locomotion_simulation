@@ -1,8 +1,11 @@
 # Python Environments for Unitree A1 Robot
 
 This repository is based on work from @yxyang. It adapted the whole_body_controller_example to use its data for Inverse Reinforcement Learning on the Unitree A1. The new model walks with a maximum speed in the desired direction and interprets the direction in the absolute coodinate system  instead of from the point of view of the robot. That led to an accumulating error in the direction and to unusable data for our purposes. For further details have a look at my thesis. The generated dataset are at https://drive.google.com/drive/folders/1w5SeejITkFCH0KgEUUuaGRv6MRdIiPFo?usp=sharing.
+
 2023_02_23_19_48_33_straight is a dataset with 50.000 datapoints per trajectory. There are 3 trajectories of the robot walking forward. Each with a different random seed and noise
+
 2023_02_23_19_48_33 is a dataset with 50.000 datapoints per trajectory and 24 trajectories in 8 direction with 3 different seeds of noise per direction.
+
 2023_02_23_19_22_49 is the same but with less datapoints (5.000) per trajectory for quicker testing.
 
 This is the simulated environment and real-robot interface for the A1 robot. The codebase can be installed directly as a PIP package, or cloned for further configurations.
